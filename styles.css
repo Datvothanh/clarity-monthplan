@@ -1373,3 +1373,61 @@ body {
   height: 1px;
   background: #e2d1bf;
 }
+
+.google-modal-box {
+  max-width: 560px;
+}
+
+.google-modal-section {
+  background: #fdf6ec;
+  border: 1.5px solid #e2d1bf;
+  border-radius: 11px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.google-modal-section h4 {
+  font-size: 13.5px;
+  color: #3d352e;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.copy-code-box {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #d5bfa8;
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-family: monospace;
+  font-size: 11.5px;
+  color: #3b3530;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.btn-copy-mini {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid #c5ad94;
+  border-radius: 7px;
+  background: #fff;
+  color: #46372b;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-copy-mini:hover {
+  background: #f3e6d6;
+}
+

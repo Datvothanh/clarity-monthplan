@@ -2,11 +2,13 @@ const STORAGE_KEY_PREFIX = 'clarity_monthplan_v2_';
 const ACCOUNTS_STORAGE_KEY = 'clarity_accounts_v2';
 const SESSION_STORAGE_KEY = 'clarity_current_session_v2';
 const SUPABASE_CFG_KEY = 'clarity_supabase_cfg_v2';
+const GOOGLE_CLIENT_ID_KEY = 'clarity_google_client_id_v2';
 
 // Kết nối trực tiếp tới dự án Supabase Cloud của bạn (clarity-monthplan)
 const DEFAULT_SUPABASE_CONFIG = {
   url: 'https://wbsdswndzofvorsgszlv.supabase.co',
-  anonKey: 'sb_publishable_9FUYJ007-mgeUKBTomcvQw_NvSTEXgd'
+  anonKey: 'sb_publishable_9FUYJ007-mgeUKBTomcvQw_NvSTEXgd',
+  googleClientId: ''
 };
 
 const MONTH_NAMES = [
@@ -45,6 +47,8 @@ let state = {
   user: null,          // { id, username, email, mode: 'supabase' | 'local' }
   authTab: 'login',    // 'login' | 'register'
   showCloudModal: false,
+  showGoogleModal: false,
+  authError: '',
   syncStatus: 'Đã lưu',
   month: 11,
   year: 2026,
@@ -115,7 +119,35 @@ function saveLocalAccounts(accounts) {
   localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 }
 
+function getGoogleClientId() {
+  if (DEFAULT_SUPABASE_CONFIG.googleClientId) {
+    return DEFAULT_SUPABASE_CONFIG.googleClientId.trim();
+  }
+  try {
+    return (localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || '').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function parseOAuthRedirectError() {
+  try {
+    const loc = window.location || {};
+    const searchStr = loc.search ? loc.search.slice(1) : '';
+    const hashStr = loc.hash ? loc.hash.slice(1) : '';
+    const params = new URLSearchParams(searchStr || hashStr);
+    const errDesc = params.get('error_description') || params.get('error');
+    if (errDesc) {
+      state.authError = decodeURIComponent(errDesc.replace(/\+/g, ' '));
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, '', (loc.origin || '') + (loc.pathname || '/'));
+      }
+    }
+  } catch (e) {}
+}
+
 async function restoreSession() {
+  parseOAuthRedirectError();
   initSupabaseClient();
 
   if (supabaseClient) {
@@ -133,6 +165,8 @@ async function restoreSession() {
           email: u.email,
           mode: 'supabase'
         };
+        state.showGoogleModal = false;
+        state.authError = '';
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
         if (prevId !== u.id) {
           state.data = await loadMonthData(state.month, state.year);
@@ -162,32 +196,252 @@ async function restoreSession() {
     }
   }
 
-  // Fallback to local session
+  // Fallback to local session (do not keep stale supabase session if Supabase has no active token)
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
     if (raw) {
-      state.user = JSON.parse(raw);
+      const savedUser = JSON.parse(raw);
+      if (supabaseClient && savedUser?.mode === 'supabase') {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+        state.user = null;
+      } else {
+        state.user = savedUser;
+      }
     }
   } catch (e) {
     state.user = null;
   }
 }
 
+async function checkSupabaseGoogleProviderEnabled() {
+  const cfg = getSupabaseConfig();
+  if (!cfg.url || !cfg.anonKey || typeof fetch !== 'function') return false;
+  try {
+    const res = await fetch(`${cfg.url.replace(/\/$/, '')}/auth/v1/settings`, {
+      headers: { apikey: cfg.anonKey }
+    });
+    if (!res.ok) return false;
+    const settings = await res.json();
+    return Boolean(settings?.external?.google);
+  } catch (e) {
+    return false;
+  }
+}
+
+async function syncVerifiedGoogleProfileToSupabase(profile) {
+  const email = (profile.email || '').trim().toLowerCase();
+  const displayName = profile.name || email.split('@')[0] || 'Google User';
+  const derivedSecret = `GAuth_${profile.sub}_Clarity!9`;
+
+  if (supabaseClient && email) {
+    const signInRes = await supabaseClient.auth.signInWithPassword({
+      email,
+      password: derivedSecret
+    });
+    if (!signInRes.error && signInRes.data?.user) {
+      const u = signInRes.data.user;
+      state.user = {
+        id: u.id,
+        username: extractDisplayName(u.email, displayName),
+        email: u.email,
+        mode: 'supabase'
+      };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+      return state.user;
+    }
+
+    const signUpRes = await supabaseClient.auth.signUp({
+      email,
+      password: derivedSecret,
+      options: {
+        data: {
+          username: displayName,
+          full_name: displayName,
+          avatar_url: profile.picture || ''
+        }
+      }
+    });
+    if (!signUpRes.error && signUpRes.data?.user) {
+      if (!signUpRes.data.session) {
+        await supabaseClient.auth.signInWithPassword({ email, password: derivedSecret });
+      }
+      state.user = {
+        id: signUpRes.data.user.id,
+        username: displayName,
+        email: signUpRes.data.user.email,
+        mode: 'supabase'
+      };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+      return state.user;
+    }
+  }
+
+  state.user = {
+    id: `google_${profile.sub || Date.now()}`,
+    username: displayName,
+    email: email || displayName,
+    mode: 'local'
+  };
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+  return state.user;
+}
+
+function loginWithGoogleIdentityPopup(clientId) {
+  return new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error('Thư viện Google Identity chưa sẵn sàng. Vui lòng tải lại trang.'));
+      return;
+    }
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: 'openid email profile',
+      prompt: 'select_account',
+      callback: async (tokenResponse) => {
+        if (tokenResponse.error) {
+          reject(new Error(tokenResponse.error_description || tokenResponse.error));
+          return;
+        }
+        try {
+          const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+          });
+          if (!r.ok) throw new Error('Không thể lấy thông tin tài khoản Google.');
+          const profile = await r.json();
+          const user = await syncVerifiedGoogleProfileToSupabase(profile);
+          state.showGoogleModal = false;
+          state.data = await loadMonthData(state.month, state.year);
+          renderApp();
+          resolve({ mode: 'gis-popup', user });
+        } catch (err) {
+          reject(err);
+        }
+      }
+    });
+    tokenClient.requestAccessToken();
+  });
+}
+
+async function handleUnifiedGmailAuth(gmailInput, password) {
+  let cleanEmail = (gmailInput || '').trim().toLowerCase();
+  if (!cleanEmail) {
+    throw new Error('Vui lòng nhập địa chỉ Gmail của bạn.');
+  }
+  if (!cleanEmail.includes('@')) {
+    cleanEmail = `${cleanEmail}@gmail.com`;
+  }
+  if (!password || password.length < 6) {
+    throw new Error('Mật khẩu cần có ít nhất 6 ký tự.');
+  }
+
+  if (supabaseClient) {
+    // 1. Thử đăng nhập nếu tài khoản Gmail đã tồn tại trên Supabase Cloud
+    const signInRes = await supabaseClient.auth.signInWithPassword({
+      email: cleanEmail,
+      password
+    });
+
+    if (!signInRes.error && signInRes.data?.user) {
+      const u = signInRes.data.user;
+      state.user = {
+        id: u.id,
+        username: extractDisplayName(
+          u.email,
+          u.user_metadata?.full_name || u.user_metadata?.username || cleanEmail.split('@')[0]
+        ),
+        email: u.email,
+        mode: 'supabase'
+      };
+      state.showGoogleModal = false;
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+      return state.user;
+    }
+
+    // 2. Nếu chưa có tài khoản, tự động đăng ký và kích hoạt ngay trên Supabase Cloud
+    const displayUser = cleanEmail.split('@')[0];
+    const signUpRes = await supabaseClient.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: { username: displayUser, full_name: displayUser }
+      }
+    });
+
+    if (signUpRes.error) {
+      const msg = (signUpRes.error.message || '').toLowerCase();
+      if (msg.includes('already registered') || msg.includes('already exists')) {
+        throw new Error('Mật khẩu không đúng cho tài khoản Gmail này.');
+      }
+      throw new Error(signUpRes.error.message);
+    }
+
+    if (!signUpRes.data?.user) {
+      throw new Error('Không thể khởi tạo tài khoản Gmail.');
+    }
+
+    if (!signUpRes.data.session) {
+      const retryLogin = await supabaseClient.auth.signInWithPassword({
+        email: cleanEmail,
+        password
+      });
+      if (retryLogin.error) {
+        throw new Error('Mật khẩu không đúng cho tài khoản Gmail này.');
+      }
+    }
+
+    state.user = {
+      id: signUpRes.data.user.id,
+      username: displayUser,
+      email: cleanEmail,
+      mode: 'supabase'
+    };
+    state.showGoogleModal = false;
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+    return state.user;
+  }
+
+  // Fallback local
+  await handleAuthSubmit('register', cleanEmail, password).catch(async () => {
+    await handleAuthSubmit('login', cleanEmail, password);
+  });
+  state.showGoogleModal = false;
+  return state.user;
+}
+
 async function handleGoogleLogin() {
   if (!supabaseClient) {
-    throw new Error('Chưa kết nối Supabase Cloud.');
+    initSupabaseClient();
   }
-  const redirectUrl = window.location.origin + window.location.pathname;
-  const { data, error } = await supabaseClient.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: redirectUrl
+
+  // 1. Kiểm tra xem Google OAuth Provider trên Supabase đã bật chưa trước khi redirect
+  const isSupabaseGoogleEnabled = await checkSupabaseGoogleProviderEnabled();
+  if (supabaseClient && isSupabaseGoogleEnabled) {
+    const redirectUrl = window.location.origin + window.location.pathname;
+    const { data, error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        queryParams: {
+          prompt: 'select_account'
+        }
+      }
+    });
+    if (error) {
+      throw new Error(error.message);
     }
-  });
-  if (error) {
-    throw new Error(error.message);
+    return { mode: 'supabase-oauth', data };
   }
-  return data;
+
+  // 2. Nếu có Google Client ID, mở cửa sổ chọn tài khoản Google (GIS Popup) và đồng bộ Supabase
+  const googleClientId = getGoogleClientId();
+  if (googleClientId && window.google?.accounts?.oauth2) {
+    return await loginWithGoogleIdentityPopup(googleClientId);
+  }
+
+  // 3. Nếu chưa bật Google Provider trên Supabase, mở hộp thoại Đăng nhập Gmail & Cấu hình 1-Click
+  // (Tuyệt đối không redirect sang trang lỗi 400 JSON "Unsupported provider")
+  state.showGoogleModal = true;
+  renderApp();
+  return { mode: 'google-modal' };
 }
 
 async function handleAuthSubmit(mode, identifier, password) {
@@ -678,7 +932,7 @@ function renderAuthScreen() {
             ${isLogin ? '🚀 Đăng nhập vào lịch trình' : '✨ Tạo tài khoản & Bắt đầu lập kế hoạch'}
           </button>
 
-          <div id="auth-feedback" class="auth-msg"></div>
+          <div id="auth-feedback" class="auth-msg ${state.authError ? 'error' : ''}">${escapeHtml(state.authError || '')}</div>
         </form>
 
         <div class="auth-footer-bar">
@@ -690,6 +944,116 @@ function renderAuthScreen() {
       </div>
     </div>
     ${state.showCloudModal ? renderCloudConfigModal() : ''}
+    ${state.showGoogleModal ? renderGoogleAuthModal() : ''}
+  `;
+}
+
+function renderGoogleAuthModal() {
+  const cfg = getSupabaseConfig();
+  const callbackUrl = `${(cfg.url || 'https://wbsdswndzofvorsgszlv.supabase.co').replace(/\/$/, '')}/auth/v1/callback`;
+  const savedClientId = getGoogleClientId();
+
+  return `
+    <div class="modal-backdrop" id="google-modal-backdrop">
+      <div class="modal-box google-modal-box">
+        <h3>
+          <span style="display:inline-flex;align-items:center;gap:8px;">
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            Đăng nhập bằng Google (Gmail)
+          </span>
+        </h3>
+
+        <div class="google-modal-section">
+          <h4>⚡ Cách 1: Vào thẳng ngay bằng địa chỉ Gmail (Tự động Đăng nhập / Tạo mới)</h4>
+          <p style="font-size:12px; color:#5e5349; margin-bottom:10px;">
+            Nhập Gmail của bạn (chưa có tài khoản sẽ được tạo & kích hoạt tự động trên Supabase Cloud ngay lập tức):
+          </p>
+          <form id="google-quick-form">
+            <div class="auth-form-group" style="margin-bottom:10px;">
+              <label for="google-quick-email">Địa chỉ Gmail</label>
+              <input
+                type="text"
+                id="google-quick-email"
+                class="auth-input"
+                placeholder="tenban@gmail.com"
+                required
+                autocomplete="email"
+              />
+            </div>
+            <div class="auth-form-group" style="margin-bottom:10px;">
+              <label for="google-quick-password">Mật khẩu cho lịch trình Clarity</label>
+              <input
+                type="password"
+                id="google-quick-password"
+                class="auth-input"
+                placeholder="Nhập mật khẩu (tối thiểu 6 ký tự)..."
+                required
+                autocomplete="current-password"
+              />
+            </div>
+            <button type="submit" class="auth-submit-btn" id="btn-google-quick-submit">
+              🚀 Tiếp tục vào lịch trình với Gmail này
+            </button>
+            <div id="google-modal-feedback" class="auth-msg"></div>
+          </form>
+        </div>
+
+        <details class="google-modal-section" style="margin-bottom:12px;">
+          <summary style="cursor:pointer; font-weight:700; font-size:12.5px; color:#3d352e;">
+            🔑 Cách 2: Bật cửa sổ chọn tài khoản Google OAuth (1-Click Popup)
+          </summary>
+          <div style="margin-top:10px; font-size:12px; color:#5e5349;">
+            <p style="margin-bottom:8px;">
+              <strong>Tùy chọn A (Nhanh nhất):</strong> Dán <code>Google OAuth Client ID</code> (loại <em>Web application</em> từ <a href="https://console.cloud.google.com/apis/credentials/oauthclient" target="_blank" style="color:#46372b;font-weight:700;text-decoration:underline;">Google Cloud Console</a>) vào ô dưới đây:
+            </p>
+            <div class="copy-row" style="margin-bottom:10px;">
+              <input
+                type="text"
+                id="cfg-google-client-id"
+                class="auth-input"
+                style="padding:7px 10px; font-size:12px;"
+                placeholder="xxxx-xxxx.apps.googleusercontent.com"
+                value="${escapeHtml(savedClientId)}"
+              />
+              <button type="button" class="btn-tool primary" id="btn-save-google-cid" style="white-space:nowrap;">
+                Lưu & Mở Google Popup
+              </button>
+            </div>
+
+            <p style="margin-bottom:6px;">
+              <strong>Tùy chọn B (Bật trên Supabase Dashboard):</strong> Dán <code>Client ID</code> + <code>Client Secret</code> vào <a href="https://supabase.com/dashboard/project/wbsdswndzofvorsgszlv/auth/providers?provider=Google" target="_blank" style="color:#46372b;font-weight:700;text-decoration:underline;">Supabase Google Provider</a> với các URI sau:
+            </p>
+            <div style="font-size:11px; font-weight:700; color:#4d3f34; margin-top:6px;">Authorized redirect URI (trên Google Cloud):</div>
+            <div class="copy-row">
+              <div class="copy-code-box" id="code-redirect-uri">${escapeHtml(callbackUrl)}</div>
+              <button type="button" class="btn-copy-mini" data-copy="${escapeHtml(callbackUrl)}">📋 Copy</button>
+            </div>
+
+            <div style="font-size:11px; font-weight:700; color:#4d3f34; margin-top:6px;">Authorized JavaScript origins (trên Google Cloud):</div>
+            <div class="copy-row">
+              <div class="copy-code-box">https://datvothanh.github.io</div>
+              <button type="button" class="btn-copy-mini" data-copy="https://datvothanh.github.io">📋 Copy</button>
+            </div>
+            <div class="copy-row">
+              <div class="copy-code-box">http://localhost:8080</div>
+              <button type="button" class="btn-copy-mini" data-copy="http://localhost:8080">📋 Copy</button>
+            </div>
+          </div>
+        </details>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <button type="button" class="btn-tool" id="btn-recheck-google-oauth" style="font-size:11.5px;">
+            🔄 Đã bật trên Supabase? Thử lại Google OAuth
+          </button>
+          <button type="button" class="btn-tool" id="btn-close-google-modal">Đóng</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -1403,15 +1767,111 @@ function attachAuthEvents() {
       googleBtn.disabled = true;
       try {
         await handleGoogleLogin();
+        googleBtn.disabled = false;
       } catch (err) {
         googleBtn.disabled = false;
         if (feedback) {
           feedback.className = 'auth-msg error';
-          feedback.innerHTML = `Cần bật Google OAuth trong Supabase Dashboard (<a href="https://supabase.com/dashboard/project/wbsdswndzofvorsgszlv/auth/providers" target="_blank" style="color:#8c262e;text-decoration:underline;">Mở cài đặt Google Provider</a>) hoặc nhập trực tiếp địa chỉ <strong>@gmail.com</strong> của bạn vào ô bên dưới để đăng ký/đăng nhập ngay!`;
+          feedback.textContent = err.message || 'Không thể kết nối Google OAuth.';
         }
       }
     });
   }
+
+  const closeGoogleBtn = document.getElementById('btn-close-google-modal');
+  if (closeGoogleBtn) {
+    closeGoogleBtn.addEventListener('click', () => {
+      state.showGoogleModal = false;
+      renderApp();
+    });
+  }
+
+  const googleQuickForm = document.getElementById('google-quick-form');
+  if (googleQuickForm) {
+    googleQuickForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const emailVal = document.getElementById('google-quick-email').value;
+      const pwVal = document.getElementById('google-quick-password').value;
+      const modalFeedback = document.getElementById('google-modal-feedback');
+      const submitBtn = document.getElementById('btn-google-quick-submit');
+
+      if (modalFeedback) modalFeedback.className = 'auth-msg';
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ Đang kết nối tài khoản Gmail...';
+      }
+
+      try {
+        await handleUnifiedGmailAuth(emailVal, pwVal);
+        state.data = await loadMonthData(state.month, state.year);
+        renderApp();
+      } catch (err) {
+        if (modalFeedback) {
+          modalFeedback.className = 'auth-msg error';
+          modalFeedback.textContent = err.message || 'Không thể đăng nhập bằng Gmail này.';
+        }
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '🚀 Tiếp tục vào lịch trình với Gmail này';
+        }
+      }
+    });
+  }
+
+  const saveGoogleCidBtn = document.getElementById('btn-save-google-cid');
+  if (saveGoogleCidBtn) {
+    saveGoogleCidBtn.addEventListener('click', async () => {
+      const cidInput = document.getElementById('cfg-google-client-id');
+      const modalFeedback = document.getElementById('google-modal-feedback');
+      const cid = (cidInput?.value || '').trim();
+      if (!cid || !cid.includes('.apps.googleusercontent.com')) {
+        if (modalFeedback) {
+          modalFeedback.className = 'auth-msg error';
+          modalFeedback.textContent = 'Vui lòng nhập đúng Google Client ID (có đuôi .apps.googleusercontent.com).';
+        }
+        return;
+      }
+      localStorage.setItem(GOOGLE_CLIENT_ID_KEY, cid);
+      try {
+        await loginWithGoogleIdentityPopup(cid);
+      } catch (err) {
+        if (modalFeedback) {
+          modalFeedback.className = 'auth-msg error';
+          modalFeedback.textContent = err.message || 'Không thể mở cửa sổ Google.';
+        }
+      }
+    });
+  }
+
+  const recheckGoogleBtn = document.getElementById('btn-recheck-google-oauth');
+  if (recheckGoogleBtn) {
+    recheckGoogleBtn.addEventListener('click', async () => {
+      const modalFeedback = document.getElementById('google-modal-feedback');
+      recheckGoogleBtn.disabled = true;
+      recheckGoogleBtn.textContent = '⏳ Đang kiểm tra Supabase...';
+      const enabled = await checkSupabaseGoogleProviderEnabled();
+      recheckGoogleBtn.disabled = false;
+      recheckGoogleBtn.textContent = '🔄 Đã bật trên Supabase? Thử lại Google OAuth';
+      if (enabled) {
+        await handleGoogleLogin();
+      } else if (modalFeedback) {
+        modalFeedback.className = 'auth-msg error';
+        modalFeedback.textContent = 'Google Provider trên Supabase hiện vẫn đang tắt (disabled). Bạn có thể nhập Gmail ở Cách 1 để vào ngay!';
+      }
+    });
+  }
+
+  document.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const text = btn.getAttribute('data-copy');
+      if (navigator.clipboard && text) {
+        navigator.clipboard.writeText(text);
+        const old = btn.textContent;
+        btn.textContent = '✅ Đã copy';
+        setTimeout(() => { btn.textContent = old; }, 1500);
+      }
+    });
+  });
 
   const form = document.getElementById('auth-form');
   if (form) {

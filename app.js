@@ -1,4 +1,14 @@
-const STORAGE_KEY_PREFIX = 'clarity_monthplan_v1_';
+const STORAGE_KEY_PREFIX = 'clarity_monthplan_v2_';
+const ACCOUNTS_STORAGE_KEY = 'clarity_accounts_v2';
+const SESSION_STORAGE_KEY = 'clarity_current_session_v2';
+const SUPABASE_CFG_KEY = 'clarity_supabase_cfg_v2';
+
+// Nếu bạn đã tạo Project trên Supabase, bạn có thể dán trực tiếp URL và Anon Key vào đây
+// hoặc nhập ngay trên giao diện qua nút "☁️ Kết nối Supabase"
+const DEFAULT_SUPABASE_CONFIG = {
+  url: '',
+  anonKey: ''
+};
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -29,14 +39,213 @@ const REFLECTION_PROMPTS_WEEK = [
   'Ba mục tiêu tôi cần tập trung trong tuần tiếp theo là?'
 ];
 
+let supabaseClient = null;
+let cloudSyncTimer = null;
+
 let state = {
+  user: null,          // { id, username, email, mode: 'supabase' | 'local' }
+  authTab: 'login',    // 'login' | 'register'
+  showCloudModal: false,
+  syncStatus: 'Đã lưu',
   month: 11,
   year: 2026,
   currentWeek: 1,
-  weekFilter: 'all', // 'all' or 1..5
+  weekFilter: 'all',
   data: null
 };
 
+/* ==========================================
+   SUPABASE & AUTH INITIALIZATION
+   ========================================== */
+function getSupabaseConfig() {
+  if (DEFAULT_SUPABASE_CONFIG.url && DEFAULT_SUPABASE_CONFIG.anonKey) {
+    return DEFAULT_SUPABASE_CONFIG;
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(SUPABASE_CFG_KEY) || '{}');
+    return {
+      url: (saved.url || '').trim(),
+      anonKey: (saved.anonKey || '').trim()
+    };
+  } catch (e) {
+    return { url: '', anonKey: '' };
+  }
+}
+
+function initSupabaseClient() {
+  const cfg = getSupabaseConfig();
+  if (cfg.url && cfg.anonKey && window.supabase) {
+    try {
+      supabaseClient = window.supabase.createClient(cfg.url, cfg.anonKey);
+      return true;
+    } catch (err) {
+      console.error('Supabase init error:', err);
+    }
+  }
+  supabaseClient = null;
+  return false;
+}
+
+function normalizeIdentifierToEmail(identifier) {
+  const clean = identifier.trim().toLowerCase();
+  if (clean.includes('@')) return clean;
+  return `${clean}@clarity.user`;
+}
+
+function extractDisplayName(identifierOrEmail, metaUsername) {
+  if (metaUsername) return metaUsername;
+  if (!identifierOrEmail) return 'User';
+  if (identifierOrEmail.endsWith('@clarity.user')) {
+    return identifierOrEmail.replace('@clarity.user', '');
+  }
+  return identifierOrEmail;
+}
+
+function getLocalAccounts() {
+  try {
+    return JSON.parse(localStorage.getItem(ACCOUNTS_STORAGE_KEY) || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveLocalAccounts(accounts) {
+  localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
+}
+
+async function restoreSession() {
+  initSupabaseClient();
+
+  if (supabaseClient) {
+    try {
+      const { data } = await supabaseClient.auth.getSession();
+      if (data && data.session && data.session.user) {
+        const u = data.session.user;
+        state.user = {
+          id: u.id,
+          username: extractDisplayName(u.email, u.user_metadata?.username),
+          email: u.email,
+          mode: 'supabase'
+        };
+        return;
+      }
+    } catch (e) {
+      console.warn('Supabase session check failed:', e);
+    }
+  }
+
+  // Fallback to local session
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      state.user = JSON.parse(raw);
+    }
+  } catch (e) {
+    state.user = null;
+  }
+}
+
+async function handleAuthSubmit(mode, identifier, password) {
+  const cleanId = identifier.trim();
+  if (!cleanId || !password) {
+    throw new Error('Vui lòng nhập đầy đủ Tên tài khoản/Email và Mật khẩu.');
+  }
+  if (password.length < 6) {
+    throw new Error('Mật khẩu cần có ít nhất 6 ký tự.');
+  }
+
+  // 1. If Supabase Cloud is configured, use Supabase Auth
+  if (supabaseClient) {
+    const email = normalizeIdentifierToEmail(cleanId);
+    if (mode === 'register') {
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username: cleanId }
+        }
+      });
+      if (error) throw new Error(error.message);
+      if (!data.user) throw new Error('Không thể tạo tài khoản.');
+
+      state.user = {
+        id: data.user.id,
+        username: cleanId,
+        email: data.user.email,
+        mode: 'supabase'
+      };
+    } else {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password
+      });
+      if (error) throw new Error('Sai tài khoản hoặc mật khẩu.');
+      state.user = {
+        id: data.user.id,
+        username: extractDisplayName(data.user.email, data.user.user_metadata?.username),
+        email: data.user.email,
+        mode: 'supabase'
+      };
+    }
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+    return;
+  }
+
+  // 2. Local Multi-Account Auth (works immediately out of the box)
+  const accounts = getLocalAccounts();
+  const key = cleanId.toLowerCase();
+
+  if (mode === 'register') {
+    if (accounts[key]) {
+      throw new Error('Tài khoản này đã tồn tại. Vui lòng chọn tên khác hoặc chuyển sang Đăng nhập.');
+    }
+    const newUser = {
+      id: 'usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      username: cleanId,
+      passwordHash: btoa(unescape(encodeURIComponent(password))),
+      createdAt: new Date().toISOString()
+    };
+    accounts[key] = newUser;
+    saveLocalAccounts(accounts);
+
+    state.user = {
+      id: newUser.id,
+      username: newUser.username,
+      email: cleanId,
+      mode: 'local'
+    };
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+  } else {
+    const acc = accounts[key];
+    const passHash = btoa(unescape(encodeURIComponent(password)));
+    if (!acc || acc.passwordHash !== passHash) {
+      throw new Error('Tên tài khoản hoặc mật khẩu không đúng.');
+    }
+    state.user = {
+      id: acc.id,
+      username: acc.username,
+      email: cleanId,
+      mode: 'local'
+    };
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state.user));
+  }
+}
+
+async function handleLogout() {
+  if (supabaseClient) {
+    try {
+      await supabaseClient.auth.signOut();
+    } catch (e) {}
+  }
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+  state.user = null;
+  state.data = null;
+  renderApp();
+}
+
+/* ==========================================
+   DATA LOADING & CLOUD SYNC PER ACCOUNT
+   ========================================== */
 function getDaysInMonth(month, year) {
   return new Date(year, month, 0).getDate();
 }
@@ -78,7 +287,6 @@ function createDefaultMonthData(month, year, withSample = true) {
     const checks = Array.from({ length: 31 }, (_, dIdx) => {
       if (!withSample) return false;
       if (dIdx >= daysCount) return false;
-      // Deterministic pattern that looks natural like the screenshot
       const seed = (hIdx * 7 + dIdx * 13 + 5) % 20;
       return (seed / 20) < h.rate;
     });
@@ -179,24 +387,96 @@ function createDefaultMonthData(month, year, withSample = true) {
   };
 }
 
-function loadMonthData(month, year) {
-  const key = `${STORAGE_KEY_PREFIX}${year}_${month}`;
+function getUserStorageKey(month, year) {
+  const uid = state.user ? state.user.id : 'guest';
+  return `${STORAGE_KEY_PREFIX}${uid}_${year}_${month}`;
+}
+
+async function loadMonthData(month, year) {
+  if (!state.user) return null;
+
+  // 1. Try loading from Supabase Cloud if connected
+  if (supabaseClient && state.user.mode === 'supabase') {
+    setSyncBadge('⏳ Đang tải Cloud...', true);
+    try {
+      const { data, error } = await supabaseClient
+        .from('user_plans')
+        .select('plan_data')
+        .eq('user_id', state.user.id)
+        .eq('year', year)
+        .eq('month', month)
+        .maybeSingle();
+
+      if (!error && data && data.plan_data) {
+        localStorage.setItem(getUserStorageKey(month, year), JSON.stringify(data.plan_data));
+        setSyncBadge('☁️ Đã đồng bộ Cloud', false);
+        return data.plan_data;
+      }
+    } catch (e) {
+      console.warn('Cloud fetch error:', e);
+    }
+  }
+
+  // 2. Load from account-isolated local storage
+  const key = getUserStorageKey(month, year);
   const raw = localStorage.getItem(key);
   if (raw) {
     try {
+      setSyncBadge(supabaseClient ? '☁️ Đã đồng bộ Cloud' : '💾 Đã lưu vào tài khoản', false);
       return JSON.parse(raw);
-    } catch (e) {
-      console.error('Failed to parse saved data:', e);
-    }
+    } catch (e) {}
   }
-  const initial = createDefaultMonthData(month, year, true);
+
+  // New account starts with blank schedule (or sample if desired)
+  const initial = createDefaultMonthData(month, year, false);
   saveMonthData(month, year, initial);
   return initial;
 }
 
 function saveMonthData(month, year, data = state.data) {
-  const key = `${STORAGE_KEY_PREFIX}${year}_${month}`;
+  if (!state.user || !data) return;
+  const key = getUserStorageKey(month, year);
   localStorage.setItem(key, JSON.stringify(data));
+
+  if (supabaseClient && state.user.mode === 'supabase') {
+    setSyncBadge('⏳ Đang lưu Cloud...', true);
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = setTimeout(async () => {
+      try {
+        const { error } = await supabaseClient
+          .from('user_plans')
+          .upsert(
+            {
+              user_id: state.user.id,
+              year,
+              month,
+              plan_data: data,
+              updated_at: new Date().toISOString()
+            },
+            { onConflict: 'user_id,year,month' }
+          );
+        if (error) {
+          console.warn('Supabase upsert warning:', error.message);
+          setSyncBadge('💾 Đã lưu máy (Chưa tạo bảng SQL)', false);
+        } else {
+          setSyncBadge('☁️ Đã lưu trên Cloud', false);
+        }
+      } catch (e) {
+        setSyncBadge('💾 Đã lưu cục bộ', false);
+      }
+    }, 450);
+  } else {
+    setSyncBadge('💾 Đã lưu vào tài khoản', false);
+  }
+}
+
+function setSyncBadge(text, isSaving) {
+  state.syncStatus = text;
+  const el = document.getElementById('sync-status-pill');
+  if (el) {
+    el.textContent = text;
+    el.classList.toggle('saving', Boolean(isSaving));
+  }
 }
 
 /* ==========================================
@@ -212,7 +492,6 @@ function calcTaskListStats(taskList) {
 }
 
 function calcWeekProductivityPct(weekObj) {
-  // Combines weekly goals + all daily tasks in that week if any exist
   const goalStats = calcTaskListStats(weekObj.goals);
   let dayCompleted = 0;
   let dayTotal = 0;
@@ -228,9 +507,7 @@ function calcWeekProductivityPct(weekObj) {
 }
 
 function getDateForWeekDay(month, year, weekIdx, dayIdx) {
-  // Finds the calendar date for a given week (0..4) and day of week (0=Monday..6=Sunday)
   const firstDay = new Date(year, month - 1, 1);
-  // Convert JS Sunday=0..Saturday=6 into Monday=0..Sunday=6
   const firstDayMonIdx = (firstDay.getDay() + 6) % 7;
   const dayOfMonth = weekIdx * 7 + dayIdx - firstDayMonIdx + 1;
   const maxDays = getDaysInMonth(month, year);
@@ -244,14 +521,14 @@ function getDateForWeekDay(month, year, weekIdx, dayIdx) {
 }
 
 function getHabitPctColor(pct) {
-  if (pct >= 80) return '#9ec3b0'; // soft sage/mint green like screenshot
+  if (pct >= 80) return '#9ec3b0';
   if (pct >= 60) return '#d6e3d8';
-  if (pct > 0) return '#f4cbd2';   // soft rose pink for low % like 42% in screenshot
+  if (pct > 0) return '#f4cbd2';
   return '#ead8c8';
 }
 
 /* ==========================================
-   SVG MASCOTS (DUCK & CAPYBARA)
+   SVG MASCOTS
    ========================================== */
 function getSlidingDuckSVG() {
   return `
@@ -270,24 +547,130 @@ function getSlidingDuckSVG() {
 function getCapybaraSVG() {
   return `
     <svg width="68" height="76" viewBox="0 0 90 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- Apple on head -->
       <circle cx="45" cy="17" r="9" fill="#E34C43" stroke="#2D2520" stroke-width="2.5"/>
       <path d="M45 8C46 4 50 3 52 5" stroke="#4E7C3E" stroke-width="2.5" stroke-linecap="round"/>
-      <!-- Ears -->
       <ellipse cx="25" cy="30" rx="6" ry="5" fill="#8C6747" stroke="#2D2520" stroke-width="2.5"/>
       <ellipse cx="65" cy="30" rx="6" ry="5" fill="#8C6747" stroke="#2D2520" stroke-width="2.5"/>
-      <!-- Body/Head -->
       <path d="M16 95C16 55 20 26 45 26C70 26 74 55 74 95" fill="#B58B67" stroke="#2D2520" stroke-width="3"/>
-      <!-- Snout patch -->
       <ellipse cx="45" cy="48" rx="13" ry="11" fill="#8C6747"/>
-      <!-- Eyes -->
       <path d="M26 43H33" stroke="#2D2520" stroke-width="3" stroke-linecap="round"/>
       <path d="M57 43H64" stroke="#2D2520" stroke-width="3" stroke-linecap="round"/>
-      <!-- Nose/Mouth -->
       <path d="M42 44H48M45 44V52M40 53C43 55 47 55 50 53" stroke="#2D2520" stroke-width="2.5" stroke-linecap="round"/>
-      <!-- Paws together -->
       <path d="M35 76C38 70 43 70 45 76C47 70 52 70 55 76" stroke="#2D2520" stroke-width="2.8" stroke-linecap="round"/>
     </svg>
+  `;
+}
+
+/* ==========================================
+   AUTH VIEW & CLOUD CONFIG MODAL
+   ========================================== */
+function renderAuthScreen() {
+  const isLogin = state.authTab === 'login';
+  const cfg = getSupabaseConfig();
+  const isCloudConnected = Boolean(cfg.url && cfg.anonKey);
+
+  return `
+    <div class="auth-screen-wrap">
+      <div class="auth-card">
+        <div class="auth-card-header">
+          <div class="auth-mascot-row">🐥🦫🍎</div>
+          <h1 class="auth-title">Clarity Monthplan</h1>
+          <p class="auth-subtitle">Đăng nhập để xem và lưu lịch trình cá nhân của riêng bạn</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab-btn ${isLogin ? 'active' : ''}" id="tab-btn-login">Đăng nhập</button>
+          <button type="button" class="auth-tab-btn ${!isLogin ? 'active' : ''}" id="tab-btn-register">Đăng ký tài khoản</button>
+        </div>
+
+        <form id="auth-form">
+          <div class="auth-form-group">
+            <label for="auth-identifier">Tên tài khoản hoặc Email</label>
+            <input
+              type="text"
+              id="auth-identifier"
+              class="auth-input"
+              placeholder="Ví dụ: thanhdat hoặc dat@gmail.com"
+              required
+              autocomplete="username"
+            />
+          </div>
+
+          <div class="auth-form-group">
+            <label for="auth-password">Mật khẩu</label>
+            <input
+              type="password"
+              id="auth-password"
+              class="auth-input"
+              placeholder="Nhập mật khẩu (tối thiểu 6 ký tự)..."
+              required
+              autocomplete="${isLogin ? 'current-password' : 'new-password'}"
+            />
+          </div>
+
+          <button type="submit" class="auth-submit-btn" id="auth-submit-btn">
+            ${isLogin ? '🚀 Đăng nhập vào lịch trình' : '✨ Tạo tài khoản & Bắt đầu lập kế hoạch'}
+          </button>
+
+          <div id="auth-feedback" class="auth-msg"></div>
+        </form>
+
+        <div class="auth-footer-bar">
+          <span>Trạng thái: <strong>${isCloudConnected ? '☁️ Supabase Cloud' : '💾 Đa tài khoản'}</strong></span>
+          <button type="button" class="btn-tool" id="btn-open-cloud-cfg" style="padding:4px 8px; font-size:11px;">
+            ⚙️ Cấu hình Supabase Cloud
+          </button>
+        </div>
+      </div>
+    </div>
+    ${state.showCloudModal ? renderCloudConfigModal() : ''}
+  `;
+}
+
+function renderCloudConfigModal() {
+  const cfg = getSupabaseConfig();
+  return `
+    <div class="modal-backdrop" id="cloud-modal-backdrop">
+      <div class="modal-box">
+        <h3>☁️ Kết nối cơ sở dữ liệu Supabase Cloud</h3>
+        <p style="font-size:12px; color:#5e5349; margin-bottom:12px;">
+          Dán <strong>Project URL</strong> và <strong>Anon Public Key</strong> từ dự án Supabase của bạn để đồng bộ lịch trình giữa mọi thiết bị (Điện thoại & Máy tính).
+        </p>
+
+        <div class="auth-form-group">
+          <label>Supabase Project URL</label>
+          <input type="text" id="cfg-supabase-url" class="auth-input" placeholder="https://xxxx.supabase.co" value="${escapeHtml(cfg.url)}" />
+        </div>
+
+        <div class="auth-form-group">
+          <label>Supabase Anon Public Key</label>
+          <input type="text" id="cfg-supabase-key" class="auth-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." value="${escapeHtml(cfg.anonKey)}" />
+        </div>
+
+        <details style="margin-bottom:12px;">
+          <summary style="cursor:pointer; font-weight:700; font-size:12px; color:#4f5441;">
+            📋 Xem lệnh SQL tạo bảng trên Supabase (chạy 1 lần trong SQL Editor)
+          </summary>
+          <pre class="sql-pre">create table if not exists public.user_plans (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  year integer not null,
+  month integer not null,
+  plan_data jsonb not null,
+  updated_at timestamptz not null default now(),
+  unique (user_id, year, month)
+);
+alter table public.user_plans enable row level security;
+create policy "Users manage own plans" on public.user_plans
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);</pre>
+        </details>
+
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button type="button" class="btn-tool" id="btn-close-cloud-cfg">Đóng</button>
+          <button type="button" class="btn-tool primary" id="btn-save-cloud-cfg">💾 Lưu kết nối</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -296,6 +679,13 @@ function getCapybaraSVG() {
    ========================================== */
 function renderApp() {
   const root = document.getElementById('app-root');
+
+  if (!state.user) {
+    root.innerHTML = renderAuthScreen();
+    attachAuthEvents();
+    return;
+  }
+
   const daysInMonth = getDaysInMonth(state.month, state.year);
   const monthName = MONTH_NAMES[state.month - 1];
 
@@ -304,7 +694,10 @@ function renderApp() {
     <div class="app-toolbar">
       <div class="toolbar-brand">
         <span>🐥 Clarity Monthplan</span>
-        <span class="badge">X3 Năng Suất & Kỷ Luật</span>
+        <div class="user-pill" title="Tài khoản đang đăng nhập">
+          <span>👤 ${escapeHtml(state.user.username)}</span>
+        </div>
+        <span class="sync-status-badge" id="sync-status-pill">${escapeHtml(state.syncStatus)}</span>
       </div>
 
       <div class="week-filter-group">
@@ -315,11 +708,13 @@ function renderApp() {
       </div>
 
       <div class="toolbar-actions">
-        <button class="btn-tool" id="btn-load-sample" title="Nạp dữ liệu mẫu giống bản gốc">✨ Dữ liệu mẫu</button>
+        <button class="btn-tool" id="btn-open-cloud-cfg" title="Cấu hình đồng bộ Supabase Cloud">☁️ Cloud</button>
+        <button class="btn-tool" id="btn-load-sample" title="Nạp dữ liệu mẫu vào tài khoản này">✨ Dữ liệu mẫu</button>
         <button class="btn-tool" id="btn-export-json" title="Tải file lưu trữ về máy">💾 Xuất file</button>
         <button class="btn-tool" id="btn-import-json" title="Khôi phục từ file đã lưu">📂 Nhập file</button>
         <input type="file" id="file-import-input" accept=".json" style="display:none" />
-        <button class="btn-tool danger" id="btn-clear-month" title="Xóa trắng tháng hiện tại để lập kế hoạch mới">🗑️ Làm trống tháng</button>
+        <button class="btn-tool danger" id="btn-clear-month" title="Xóa trắng tháng hiện tại để lập kế hoạch mới">🗑️ Làm trống</button>
+        <button class="btn-tool" id="btn-logout" title="Đăng xuất khỏi tài khoản hiện tại">🚪 Đăng xuất</button>
       </div>
     </div>
 
@@ -401,7 +796,7 @@ function renderApp() {
             </div>
             <div style="text-align:center; background:rgba(255,255,255,0.65); padding:8px 12px; border-radius:8px; border:1px solid #8ab072;">
               <div style="font-size:20px;">🪟☁️🍵</div>
-              <div style="font-size:10.5px; font-weight:700; color:#3d4e34;" id="cozy-quote-box">Kỷ luật tạo nên tự do</div>
+              <div style="font-size:10.5px; font-weight:700; color:#3d4e34;">Kế hoạch của ${escapeHtml(state.user.username)}</div>
             </div>
           </div>
           <div class="duck-parade">
@@ -414,7 +809,6 @@ function renderApp() {
 
       <!-- 2. MONTHLY GOALS & REFLECTION -->
       <section class="monthly-goals-section">
-        <!-- Left summary -->
         <div class="goal-summary-panel">
           <div class="duck-progress-track">
             <div class="duck-progress-bar" id="month-goal-prog-bar" style="width: 0%"></div>
@@ -444,14 +838,12 @@ function renderApp() {
           </table>
         </div>
 
-        <!-- Donut Chart -->
         <div class="donut-panel">
           <div class="donut-ring" id="month-donut-ring">
             <div class="donut-hole" id="month-donut-text">0%</div>
           </div>
         </div>
 
-        <!-- Tiered Priority / Regular Checklist -->
         <div class="tiered-checklist-box">
           <table class="tiered-table">
             <tbody>
@@ -478,7 +870,6 @@ function renderApp() {
           </table>
         </div>
 
-        <!-- Monthly Reflection -->
         <div class="reflection-panel">
           <div class="reflection-header">Reflection</div>
           <table class="reflection-table">
@@ -501,9 +892,8 @@ function renderApp() {
         </div>
       </section>
 
-      <!-- 3. HABIT TRACKER (CAPYBARA + 31 DAYS + HORIZONTAL BAR CHART) -->
+      <!-- 3. HABIT TRACKER -->
       <section class="habit-section">
-        <!-- Left column: Capybara + Habit names + % -->
         <div class="habit-left-col">
           <div class="habit-mascot-header">
             <div style="display:flex; align-items:center; gap:10px;">
@@ -534,7 +924,6 @@ function renderApp() {
           </table>
         </div>
 
-        <!-- Center column: 1..31 Days Matrix with top vertical bars -->
         <div class="habit-center-col">
           <table class="habit-matrix-table">
             <thead>
@@ -575,12 +964,11 @@ function renderApp() {
           </table>
         </div>
 
-        <!-- Right column: Horizontal Habit Bar Chart -->
         <div class="habit-right-col">
           <div class="habit-hchart-box">
             ${state.data.habits.map((h, hIdx) => `
               <div class="h-bar-row">
-                <span class="h-bar-label" id="hbar-label-${hIdx}">${escapeHtml(h.name || `Habit ${hIdx + 1}`)}</span>
+                <span class="h-bar-label" id="hbar-label-${hIdx}">${escapeHtml(h.name || `Thói quen ${hIdx + 1}`)}</span>
                 <div class="h-bar-track">
                   <div class="h-bar-fill" id="hbar-fill-${hIdx}" style="width: 0%"></div>
                 </div>
@@ -612,6 +1000,7 @@ function renderApp() {
       </div>
 
     </div>
+    ${state.showCloudModal ? renderCloudConfigModal() : ''}
   `;
 
   attachEvents();
@@ -621,7 +1010,6 @@ function renderApp() {
 function renderWeekBlock(weekObj, wIdx) {
   return `
     <section class="week-block" id="week-block-${wIdx}">
-      <!-- Week Summary + Donut + Weekly Priority/Regular Goals + Weekly Reflection -->
       <div class="week-goals-row">
         <div class="week-summary-panel">
           <div class="week-progress-track">
@@ -652,14 +1040,12 @@ function renderWeekBlock(weekObj, wIdx) {
           </table>
         </div>
 
-        <!-- Week Donut -->
         <div class="donut-panel" style="border-right: 1px solid #ead6c0;">
           <div class="donut-ring" id="week-donut-ring-${wIdx}">
             <div class="week-donut-hole" id="week-donut-text-${wIdx}">0%</div>
           </div>
         </div>
 
-        <!-- Week Goals Checklist -->
         <div class="tiered-checklist-box" style="border-right: 1px solid #ead6c0;">
           <table class="tiered-table">
             <tbody>
@@ -694,7 +1080,6 @@ function renderWeekBlock(weekObj, wIdx) {
           </table>
         </div>
 
-        <!-- Weekly Reflection -->
         <div class="reflection-panel">
           <div class="week-reflection-header">Reflection</div>
           <table class="reflection-table">
@@ -718,7 +1103,6 @@ function renderWeekBlock(weekObj, wIdx) {
         </div>
       </div>
 
-      <!-- 7-Day Columns (Monday .. Sunday) -->
       <div class="days-seven-grid">
         ${weekObj.days.map((dayObj, dIdx) => {
           const dayMeta = DAY_HEADERS[dIdx];
@@ -735,7 +1119,6 @@ function renderWeekBlock(weekObj, wIdx) {
                 ${dateInfo ? dateInfo.formatted : ''}
               </div>
 
-              <!-- Vertical Fill Pillar -->
               <div class="day-pillar-area">
                 <div class="day-pillar-track">
                   <div class="day-pillar-fill" id="day-pillar-fill-${wIdx}-${dIdx}" style="height: 0%"></div>
@@ -743,7 +1126,6 @@ function renderWeekBlock(weekObj, wIdx) {
                 <div class="day-pillar-pct" id="day-pillar-pct-${wIdx}-${dIdx}">0%</div>
               </div>
 
-              <!-- Daily Priority (3) + Regular (7) Tasks -->
               <div class="day-tasks-wrap">
                 <table class="day-tasks-table">
                   <tbody>
@@ -780,7 +1162,6 @@ function renderWeekBlock(weekObj, wIdx) {
                 </table>
               </div>
 
-              <!-- Daily Note -->
               <div class="day-note-header">Note</div>
               <textarea
                 class="day-note-area"
@@ -801,9 +1182,9 @@ function renderWeekBlock(weekObj, wIdx) {
    LIVE REACTIVE CHART & PROGRESS UPDATER
    ========================================== */
 function updateAllStatsUI() {
+  if (!state.data) return;
   const daysInMonth = getDaysInMonth(state.month, state.year);
 
-  // 1. Monthly Goals stats
   const mStats = calcTaskListStats(state.data.monthlyGoals);
   setText('month-stat-completed', mStats.completed);
   setText('month-stat-inprogress', mStats.inProgress);
@@ -821,7 +1202,6 @@ function updateAllStatsUI() {
     mDonut.style.background = `conic-gradient(#636854 0% ${mStats.pct}%, rgba(255,255,255,0.35) ${mStats.pct}% 100%)`;
   }
 
-  // 2. Habit Tracker row % + Horizontal chart
   const activeHabitIndices = [];
   state.data.habits.forEach((h, hIdx) => {
     const checksInMonth = h.checks.slice(0, daysInMonth);
@@ -845,7 +1225,6 @@ function updateAllStatsUI() {
     if (hbarVal) hbarVal.textContent = `${pct}%`;
   });
 
-  // 3. Habit Tracker daily vertical mini-bars (1..daysInMonth)
   const totalHabitsCount = Math.max(1, activeHabitIndices.length);
   for (let dIdx = 0; dIdx < daysInMonth; dIdx++) {
     let checkedToday = 0;
@@ -861,7 +1240,6 @@ function updateAllStatsUI() {
     if (dayPct) dayPct.textContent = `${dayHabitPct}%`;
   }
 
-  // 4. Weeks stats + Top Weekly Productivity Bar Chart + Daily Pillars
   state.data.weeks.forEach((weekObj, wIdx) => {
     const wGoalStats = calcTaskListStats(weekObj.goals);
     setText(`week-stat-completed-${wIdx}`, wGoalStats.completed);
@@ -880,7 +1258,6 @@ function updateAllStatsUI() {
       wDonut.style.background = `conic-gradient(#f5b98c 0% ${wGoalStats.pct}%, #fde2ce ${wGoalStats.pct}% 100%)`;
     }
 
-    // Daily pillars inside this week
     weekObj.days.forEach((dayObj, dIdx) => {
       const dStats = calcTaskListStats(dayObj.tasks);
       const pillarFill = document.getElementById(`day-pillar-fill-${wIdx}-${dIdx}`);
@@ -889,7 +1266,6 @@ function updateAllStatsUI() {
       if (pillarPct) pillarPct.textContent = `${dStats.pct}%`;
     });
 
-    // Top banner weekly productivity bar chart
     const overallWeekPct = calcWeekProductivityPct(weekObj);
     const topBarFill = document.getElementById(`top-wbar-fill-${wIdx}`);
     const topBarPct = document.getElementById(`top-wbar-pct-${wIdx}`);
@@ -906,19 +1282,101 @@ function updateAllStatsUI() {
 /* ==========================================
    EVENT LISTENERS
    ========================================== */
+function attachCloudModalEvents() {
+  const openBtn = document.getElementById('btn-open-cloud-cfg');
+  if (openBtn) {
+    openBtn.addEventListener('click', () => {
+      state.showCloudModal = true;
+      renderApp();
+    });
+  }
+
+  const closeBtn = document.getElementById('btn-close-cloud-cfg');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      state.showCloudModal = false;
+      renderApp();
+    });
+  }
+
+  const saveBtn = document.getElementById('btn-save-cloud-cfg');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const url = document.getElementById('cfg-supabase-url').value.trim();
+      const anonKey = document.getElementById('cfg-supabase-key').value.trim();
+      localStorage.setItem(SUPABASE_CFG_KEY, JSON.stringify({ url, anonKey }));
+      initSupabaseClient();
+      state.showCloudModal = false;
+      renderApp();
+    });
+  }
+}
+
+function attachAuthEvents() {
+  attachCloudModalEvents();
+
+  const tabLogin = document.getElementById('tab-btn-login');
+  const tabRegister = document.getElementById('tab-btn-register');
+  if (tabLogin) {
+    tabLogin.addEventListener('click', () => {
+      state.authTab = 'login';
+      renderApp();
+    });
+  }
+  if (tabRegister) {
+    tabRegister.addEventListener('click', () => {
+      state.authTab = 'register';
+      renderApp();
+    });
+  }
+
+  const form = document.getElementById('auth-form');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const idVal = document.getElementById('auth-identifier').value;
+      const pwVal = document.getElementById('auth-password').value;
+      const feedback = document.getElementById('auth-feedback');
+      const submitBtn = document.getElementById('auth-submit-btn');
+
+      feedback.className = 'auth-msg';
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ Đang xử lý...';
+
+      try {
+        await handleAuthSubmit(state.authTab, idVal, pwVal);
+        state.data = await loadMonthData(state.month, state.year);
+        renderApp();
+      } catch (err) {
+        feedback.className = 'auth-msg error';
+        feedback.textContent = err.message || 'Có lỗi xảy ra, vui lòng thử lại.';
+        submitBtn.disabled = false;
+        submitBtn.textContent = state.authTab === 'login'
+          ? '🚀 Đăng nhập vào lịch trình'
+          : '✨ Tạo tài khoản & Bắt đầu lập kế hoạch';
+      }
+    });
+  }
+}
+
 function attachEvents() {
   const root = document.getElementById('app-root');
+  attachCloudModalEvents();
 
-  // Month / Year / Current Week selectors
-  document.getElementById('select-month').addEventListener('change', (e) => {
+  const logoutBtn = document.getElementById('btn-logout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', handleLogout);
+  }
+
+  document.getElementById('select-month').addEventListener('change', async (e) => {
     state.month = Number(e.target.value);
-    state.data = loadMonthData(state.month, state.year);
+    state.data = await loadMonthData(state.month, state.year);
     renderApp();
   });
 
-  document.getElementById('select-year').addEventListener('change', (e) => {
+  document.getElementById('select-year').addEventListener('change', async (e) => {
     state.year = Number(e.target.value);
-    state.data = loadMonthData(state.month, state.year);
+    state.data = await loadMonthData(state.month, state.year);
     renderApp();
   });
 
@@ -926,7 +1384,6 @@ function attachEvents() {
     state.currentWeek = Number(e.target.value);
   });
 
-  // Week filter tabs
   root.querySelectorAll('[data-weekfilter]').forEach(btn => {
     btn.addEventListener('click', () => {
       const val = btn.getAttribute('data-weekfilter');
@@ -935,7 +1392,6 @@ function attachEvents() {
     });
   });
 
-  // Toolbar buttons
   document.getElementById('btn-load-sample').addEventListener('click', () => {
     state.data = createDefaultMonthData(state.month, state.year, true);
     saveMonthData(state.month, state.year);
@@ -943,7 +1399,7 @@ function attachEvents() {
   });
 
   document.getElementById('btn-clear-month').addEventListener('click', () => {
-    if (confirm(`Bạn có chắc muốn làm trống toàn bộ kế hoạch tháng ${state.month}/${state.year} để bắt đầu viết mới?`)) {
+    if (confirm(`Bạn có chắc muốn làm trống toàn bộ kế hoạch tháng ${state.month}/${state.year} của tài khoản "${state.user.username}"?`)) {
       state.data = createDefaultMonthData(state.month, state.year, false);
       saveMonthData(state.month, state.year);
       renderApp();
@@ -955,7 +1411,7 @@ function attachEvents() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `clarity-monthplan-${state.year}-${state.month}.json`;
+    a.download = `clarity-${state.user.username}-${state.year}-${state.month}.json`;
     a.click();
     URL.revokeObjectURL(url);
   });
@@ -983,7 +1439,6 @@ function attachEvents() {
     reader.readAsText(file);
   });
 
-  // Delegated checkbox & text input changes
   root.onchange = (e) => {
     const t = e.target;
     const type = t.getAttribute('data-type');
@@ -1094,10 +1549,14 @@ function isTodayDate(day, month, year) {
   );
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const now = new Date();
   state.month = now.getMonth() + 1;
   state.year = now.getFullYear();
-  state.data = loadMonthData(state.month, state.year);
+
+  await restoreSession();
+  if (state.user) {
+    state.data = await loadMonthData(state.month, state.year);
+  }
   renderApp();
 });

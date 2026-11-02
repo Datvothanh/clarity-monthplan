@@ -1105,3 +1105,228 @@ body {
     grid-column: 1 / -1;
   }
 }
+
+/* ==========================================
+   AUTH SCREEN & USER PROFILE BAR
+   ========================================== */
+.auth-screen-wrap {
+  min-height: calc(100vh - 32px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: #fffaf3;
+  border: 2.5px solid #cbb59f;
+  border-radius: 18px;
+  padding: 28px 28px 24px 28px;
+  box-shadow: 0 14px 36px rgba(80, 58, 38, 0.14);
+}
+
+.auth-card-header {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.auth-mascot-row {
+  font-size: 38px;
+  margin-bottom: 6px;
+  user-select: none;
+}
+
+.auth-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: #46372b;
+}
+
+.auth-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #f2e4d4;
+  padding: 4px;
+  border-radius: 10px;
+  margin-bottom: 18px;
+}
+
+.auth-tab-btn {
+  border: none;
+  background: transparent;
+  padding: 8px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  color: #6b5a4c;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-tab-btn.active {
+  background: #fff;
+  color: #3b3530;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.auth-form-group {
+  margin-bottom: 14px;
+}
+
+.auth-form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4d3f34;
+  margin-bottom: 5px;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #d5bfa8;
+  border-radius: 9px;
+  background: #fdf8f2;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: #3b3530;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.auth-input:focus {
+  border-color: #636854;
+  background: #fff;
+}
+
+.auth-submit-btn {
+  width: 100%;
+  padding: 11px;
+  border: none;
+  border-radius: 10px;
+  background: #636854;
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  margin-top: 4px;
+}
+
+.auth-submit-btn:hover {
+  background: #4e5340;
+}
+
+.auth-msg {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: none;
+}
+
+.auth-msg.error {
+  display: block;
+  background: #fde2e4;
+  color: #8c262e;
+  border: 1px solid #f5b5bc;
+}
+
+.auth-msg.success {
+  display: block;
+  background: #e1f0e5;
+  color: #265936;
+  border: 1px solid #a9d6b5;
+}
+
+.auth-footer-bar {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed #dcc8b4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: #6e655d;
+}
+
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f3e6d6;
+  border: 1.5px solid #d5bfa8;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #45382d;
+}
+
+.sync-status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #e6f2e8;
+  color: #2d5e38;
+  border: 1px solid #b8dec0;
+}
+
+.sync-status-badge.saving {
+  background: #fef3d6;
+  color: #7a5813;
+  border-color: #f0d58c;
+}
+
+/* Cloud Config Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(45, 35, 25, 0.48);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 16px;
+}
+
+.modal-box {
+  width: 100%;
+  max-width: 540px;
+  background: #fffaf3;
+  border: 2px solid #cbb59f;
+  border-radius: 14px;
+  padding: 22px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.2);
+}
+
+.modal-box h3 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  margin-bottom: 8px;
+  color: #3d352e;
+}
+
+.sql-pre {
+  background: #2d2926;
+  color: #f5e8d8;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  overflow-x: auto;
+  max-height: 150px;
+  margin: 8px 0 12px 0;
+}

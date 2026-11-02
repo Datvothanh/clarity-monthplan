@@ -1,0 +1,1107 @@
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Fredoka:wght@500;600;700&display=swap');
+
+:root {
+  --bg-page: #f5e8d8;
+  --bg-sheet: #fbf2e6;
+  --bg-cream: #fdf7ef;
+  --bg-peach-light: #fce6d8;
+  --bg-peach: #f5b98c;
+  --bg-yellow-light: #fdf1d2;
+  --bg-yellow: #f2cf75;
+  --bg-sage: #9ca08c;
+  --bg-sage-dark: #636854;
+  --bg-sage-light: #afb3a2;
+  --bg-habit: #dec8b5;
+  --bg-habit-row: #f7ece2;
+  --bg-priority: #f7b6be;
+  --bg-regular: #d4e4f4;
+  --bar-brown: #c59b7d;
+  --bar-brown-dark: #a67c5e;
+  --text-main: #3b3530;
+  --text-muted: #6e655d;
+  --border-soft: #d8c6b4;
+  --border-dark: #7a6f66;
+  --font-display: 'Fredoka', 'Be Vietnam Pro', sans-serif;
+  --font-body: 'Be Vietnam Pro', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 16px;
+}
+
+/* Top Control Toolbar */
+.app-toolbar {
+  max-width: 1680px;
+  margin: 0 auto 14px auto;
+  background: #fffaf3;
+  border: 2px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  box-shadow: 0 4px 14px rgba(100, 75, 50, 0.08);
+}
+
+.toolbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: #5b4636;
+}
+
+.toolbar-brand span.badge {
+  background: #f7b6be;
+  color: #4d262b;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-family: var(--font-body);
+  font-weight: 600;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-tool {
+  border: 1.5px solid #c59b7d;
+  background: #fdf6ec;
+  color: #4e3d30;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-tool:hover {
+  background: #f5b98c;
+  border-color: #a67c5e;
+  transform: translateY(-1px);
+}
+
+.btn-tool.primary {
+  background: #636854;
+  color: #fff;
+  border-color: #4c5040;
+}
+
+.btn-tool.primary:hover {
+  background: #4c5040;
+}
+
+.btn-tool.danger {
+  border-color: #e09191;
+  color: #8c2d2d;
+}
+
+.btn-tool.danger:hover {
+  background: #f7b6be;
+}
+
+.week-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f2e5d5;
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.btn-week-tab {
+  border: none;
+  background: transparent;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: #635345;
+  cursor: pointer;
+}
+
+.btn-week-tab.active {
+  background: #fff;
+  color: #3b3530;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+/* Main Sheet Container */
+.planner-sheet {
+  max-width: 1680px;
+  margin: 0 auto;
+  background: var(--bg-sheet);
+  border: 2px solid #cbb59f;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(80, 58, 38, 0.12);
+}
+
+/* ==========================================
+   SECTION 1: TOP PLANNER HEADER
+   ========================================== */
+.top-banner-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr 420px;
+  background: #f9ead8;
+  border-bottom: 3px solid #d7c3ae;
+  min-height: 190px;
+}
+
+.planner-title-box {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-right: 1px solid var(--border-soft);
+  position: relative;
+}
+
+.planner-main-heading {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  color: #3d3834;
+  margin-bottom: 12px;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+.planner-meta-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  justify-content: center;
+}
+
+.meta-table {
+  border-collapse: collapse;
+  background: #fae8d4;
+  width: 210px;
+}
+
+.meta-table td {
+  border: 1px solid #d4b59b;
+  padding: 5px 10px;
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  color: #3d3834;
+}
+
+.meta-table td:first-child {
+  width: 60%;
+}
+
+.meta-select {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  color: #3d3834;
+  text-align: center;
+  cursor: pointer;
+  outline: none;
+}
+
+/* Weekly Overview Bar Chart */
+.weekly-overview-chart-box {
+  padding: 16px 28px 12px 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-right: 1px solid var(--border-soft);
+}
+
+.v-chart-container {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  height: 155px;
+  align-items: stretch;
+}
+
+.v-chart-yaxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  color: #554c44;
+  padding-bottom: 20px;
+  text-align: right;
+  padding-right: 8px;
+}
+
+.v-chart-bars {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 18px;
+  align-items: end;
+  border-bottom: 1.5px solid #554c44;
+  padding: 0 12px;
+  position: relative;
+  background-image: linear-gradient(to bottom, rgba(160,140,120,0.2) 1px, transparent 1px);
+  background-size: 100% 25%;
+}
+
+.v-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+}
+
+.v-bar-fill {
+  width: 100%;
+  max-width: 58px;
+  background: var(--bar-brown);
+  border-radius: 3px 3px 0 0;
+  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 2px;
+  position: relative;
+}
+
+.v-bar-pct {
+  font-size: 10px;
+  font-weight: 700;
+  color: #2f2924;
+  margin-top: 3px;
+}
+
+.v-bar-pct.zero {
+  position: absolute;
+  top: -16px;
+  color: #b08d74;
+}
+
+.v-bar-label {
+  position: absolute;
+  bottom: -20px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #3b3530;
+  white-space: nowrap;
+}
+
+.v-chart-spacer {
+  height: 20px;
+}
+
+/* Cozy Nature / Duck Artwork Box */
+.cozy-art-box {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(180deg, #e7f0dc 0%, #f9ead8 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.cozy-scene {
+  height: 120px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #a8d08d 0%, #cce8b5 50%, #d9edf7 100%);
+  border: 2px solid #8ab072;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px;
+}
+
+.duck-parade {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 6px;
+}
+
+.duck-icon {
+  font-size: 22px;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,0.12));
+  transition: transform 0.2s ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.duck-icon:hover {
+  transform: translateY(-4px) scale(1.15);
+}
+
+/* ==========================================
+   SECTION 2: MONTHLY GOALS & REFLECTION
+   ========================================== */
+.monthly-goals-section {
+  display: grid;
+  grid-template-columns: 310px 210px 1fr 470px;
+  background: var(--bg-sage);
+  border-bottom: 4px solid #e6d5c3;
+  color: #2e3026;
+}
+
+.goal-summary-panel {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid rgba(255,255,255,0.25);
+}
+
+.duck-progress-track {
+  height: 36px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+  margin-bottom: 10px;
+}
+
+.duck-progress-bar {
+  height: 100%;
+  background: var(--bg-sage-dark);
+  border-radius: 6px 0 0 6px;
+  transition: width 0.35s ease;
+}
+
+.duck-progress-mascot {
+  position: absolute;
+  top: -8px;
+  transform: translateX(-50%);
+  transition: left 0.35s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.duck-progress-pct {
+  position: absolute;
+  right: 10px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: #2e3026;
+}
+
+.goal-panel-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  text-align: center;
+  color: #36392e;
+  background: rgba(255,255,255,0.18);
+  padding: 14px 8px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.stat-mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255,255,255,0.22);
+}
+
+.stat-mini-table th,
+.stat-mini-table td {
+  border: 1px solid rgba(60, 65, 50, 0.35);
+  padding: 4px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Donut Chart Panel */
+.donut-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  border-right: 1px solid rgba(255,255,255,0.25);
+}
+
+.donut-ring {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
+}
+
+.donut-hole {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: var(--bg-sage);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: #2e3026;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+/* Priority & Regular Task List Box */
+.tiered-checklist-box {
+  padding: 12px 16px;
+  display: flex;
+  align-items: stretch;
+  border-right: 1px solid rgba(255,255,255,0.25);
+}
+
+.tiered-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tier-badge-cell {
+  width: 24px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  border: 1px solid #59554f;
+  color: #2f2a26;
+  user-select: none;
+}
+
+.tier-badge-cell.priority {
+  background: var(--bg-priority);
+}
+
+.tier-badge-cell.regular {
+  background: var(--bg-regular);
+}
+
+.task-row td {
+  border-bottom: 1px dotted rgba(60, 60, 50, 0.35);
+  height: 22px;
+  padding: 1px 6px;
+}
+
+.task-check-cell {
+  width: 26px;
+  text-align: center;
+}
+
+.custom-chk {
+  width: 15px;
+  height: 15px;
+  accent-color: #4f5441;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.task-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: inherit;
+  outline: none;
+  padding: 2px 4px;
+}
+
+.task-input:focus {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+}
+
+.task-input.completed {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+/* Reflection Panel */
+.reflection-panel {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.reflection-header {
+  background: rgba(0, 0, 0, 0.14);
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 6px;
+  border-radius: 4px 4px 0 0;
+}
+
+.reflection-table {
+  width: 100%;
+  border-collapse: collapse;
+  flex: 1;
+}
+
+.reflection-table td {
+  border: 1px dotted rgba(50, 50, 40, 0.35);
+  padding: 5px 8px;
+  vertical-align: middle;
+}
+
+.reflection-prompt {
+  width: 44%;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.reflection-textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: inherit;
+  resize: none;
+  outline: none;
+  min-height: 34px;
+}
+
+.reflection-textarea:focus {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+}
+
+/* ==========================================
+   SECTION 3: HABIT TRACKER (31 DAYS + CHARTS)
+   ========================================== */
+.habit-section {
+  display: grid;
+  grid-template-columns: 260px 1fr 370px;
+  background: #f5e3d3;
+  border-bottom: 6px solid #d5b89f;
+}
+
+/* Left column: Capybara + Habit Names + % */
+.habit-left-col {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #d5bea8;
+}
+
+.habit-mascot-header {
+  height: 98px;
+  background: var(--bg-habit);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid #c9b19b;
+  position: relative;
+}
+
+.habit-title-text {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: #3d3630;
+}
+
+.habit-pct-col-label {
+  font-weight: 700;
+  font-size: 14px;
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
+
+.habit-name-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.habit-name-table tr {
+  height: 25px;
+  border-bottom: 1px solid #e6d2c0;
+}
+
+.habit-name-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 2px 10px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: #3b3530;
+  outline: none;
+}
+
+.habit-name-input:focus {
+  background: #fff;
+}
+
+.habit-row-pct {
+  width: 52px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 11px;
+  color: #2d382e;
+}
+
+/* Center column: 31-day matrix + daily bars */
+.habit-center-col {
+  overflow-x: auto;
+  border-right: 1px solid #d5bea8;
+}
+
+.habit-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.habit-day-bars-row td {
+  height: 60px;
+  background: var(--bg-habit);
+  vertical-align: bottom;
+  padding: 6px 2px 2px 2px;
+  text-align: center;
+}
+
+.day-mini-bar-wrap {
+  height: 36px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: 3px;
+}
+
+.day-mini-bar {
+  width: 11px;
+  background: var(--bar-brown);
+  border-radius: 2px 2px 0 0;
+  transition: height 0.25s ease;
+}
+
+.day-mini-pct {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #3b3530;
+  display: block;
+}
+
+.habit-day-num-row th {
+  height: 38px;
+  background: var(--bg-habit);
+  border-bottom: 1px solid #c9b19b;
+  font-size: 11px;
+  font-weight: 700;
+  color: #3d3630;
+  text-align: center;
+}
+
+.habit-day-num-row th.today-col {
+  background: #f2cf75;
+  color: #2b2318;
+  border-radius: 4px;
+}
+
+.habit-matrix-row {
+  height: 25px;
+  border-bottom: 1px solid #ead7c5;
+}
+
+.habit-matrix-row td {
+  text-align: center;
+  padding: 0;
+}
+
+.habit-chk {
+  width: 14px;
+  height: 14px;
+  accent-color: #c59b7d;
+  cursor: pointer;
+}
+
+/* Right column: Horizontal Habit Bar Chart */
+.habit-right-col {
+  padding: 14px 16px;
+  background: #faeadb;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.habit-hchart-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: #5b4838;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.habit-hchart-box {
+  border: 1.5px solid #c59b7d;
+  background: #fdf3e7;
+  padding: 10px 12px 6px 12px;
+  border-radius: 6px;
+}
+
+.h-bar-row {
+  display: grid;
+  grid-template-columns: 95px 1fr 36px;
+  align-items: center;
+  gap: 6px;
+  height: 21px;
+}
+
+.h-bar-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #3b3530;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.h-bar-track {
+  height: 12px;
+  background: rgba(197, 155, 125, 0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.h-bar-fill {
+  height: 100%;
+  background: var(--bar-brown);
+  transition: width 0.3s ease;
+}
+
+.h-bar-val {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b5341;
+}
+
+.h-axis-labels {
+  display: flex;
+  justify-content: space-between;
+  padding-left: 101px;
+  padding-right: 36px;
+  margin-top: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #554c44;
+}
+
+/* ==========================================
+   SECTION 4: WEEK GOALS & DAILY TASKS
+   ========================================== */
+.week-section-banner {
+  background: #fdf0db;
+  border-top: 3px solid #d4e4f4;
+  border-bottom: 3px solid #d4e4f4;
+  padding: 10px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: #3b3530;
+  letter-spacing: 0.4px;
+}
+
+.week-block {
+  border-bottom: 8px solid #d4e4f4;
+}
+
+/* Week Top Summary Row (Goals + Donut + Checklist + Reflection) */
+.week-goals-row {
+  display: grid;
+  grid-template-columns: 310px 210px 1fr 470px;
+  background: #fdf2e4;
+  border-bottom: 2px solid #e6d0b8;
+}
+
+.week-summary-panel {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid #ead6c0;
+}
+
+.week-progress-track {
+  height: 34px;
+  background: #fde2ce;
+  border-radius: 6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.week-progress-bar {
+  height: 100%;
+  background: var(--bg-peach);
+  border-radius: 6px 0 0 6px;
+  transition: width 0.35s ease;
+}
+
+.week-panel-title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  text-align: center;
+  color: #453f3c;
+  padding: 10px 0;
+}
+
+.week-donut-hole {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: #fdf2e4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: #3b3530;
+}
+
+.week-reflection-header {
+  background: var(--bg-yellow);
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 6px;
+  color: #3b3530;
+}
+
+/* 7-Day Columns Grid */
+.days-seven-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-top: 1px solid #dec6ae;
+  overflow-x: auto;
+}
+
+.day-column {
+  min-width: 210px;
+  border-right: 1px solid #ab9b8e;
+  display: flex;
+  flex-direction: column;
+}
+
+.day-column:last-child {
+  border-right: none;
+}
+
+.day-column.even-day {
+  background: #fdf1dc;
+}
+
+.day-column.odd-day {
+  background: #fde4d4;
+}
+
+.day-column.is-today {
+  box-shadow: inset 0 0 0 2.5px #d97724;
+}
+
+.day-col-header {
+  padding: 6px 8px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  border-bottom: 1px solid #dec6ae;
+}
+
+.day-column.even-day .day-col-header {
+  background: var(--bg-yellow);
+}
+
+.day-column.odd-day .day-col-header {
+  background: var(--bg-peach);
+}
+
+.day-date-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: #52473f;
+  padding: 2px 0;
+  text-align: center;
+  min-height: 20px;
+}
+
+/* Daily Vertical Progress Pillar */
+.day-pillar-area {
+  height: 115px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 10px 20px 6px 20px;
+  border-bottom: 1px solid #e4cfb8;
+}
+
+.day-pillar-track {
+  width: 78px;
+  height: 76px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.day-pillar-fill {
+  width: 100%;
+  transition: height 0.3s ease;
+}
+
+.day-column.even-day .day-pillar-fill {
+  background: var(--bg-yellow);
+}
+
+.day-column.odd-day .day-pillar-fill {
+  background: var(--bg-peach);
+}
+
+.day-pillar-pct {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: #3b3530;
+}
+
+/* Daily Tasks Table */
+.day-tasks-wrap {
+  padding: 0;
+}
+
+.day-tasks-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.day-tasks-table tr {
+  height: 22px;
+  border-bottom: 1px solid rgba(170, 145, 120, 0.28);
+}
+
+.day-tasks-table .task-check-cell {
+  width: 24px;
+}
+
+.day-tasks-table .custom-chk {
+  width: 13.5px;
+  height: 13.5px;
+  accent-color: #4a4542;
+}
+
+.day-tasks-table .task-input {
+  font-size: 11.5px;
+}
+
+/* Daily Note Box */
+.day-note-header {
+  text-align: center;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px;
+  border-top: 1px solid #cbb59f;
+  border-bottom: 1px dotted #b8a089;
+}
+
+.day-column.even-day .day-note-header {
+  background: var(--bg-yellow);
+}
+
+.day-column.odd-day .day-note-header {
+  background: var(--bg-peach);
+}
+
+.day-note-area {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: #3b3530;
+  resize: vertical;
+  min-height: 62px;
+  outline: none;
+}
+
+.day-note-area:focus {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1350px) {
+  .top-banner-grid {
+    grid-template-columns: 320px 1fr;
+  }
+  .cozy-art-box {
+    grid-column: 1 / -1;
+  }
+  .monthly-goals-section,
+  .week-goals-row {
+    grid-template-columns: 280px 190px 1fr;
+  }
+  .monthly-goals-section .reflection-panel,
+  .week-goals-row .reflection-panel {
+    grid-column: 1 / -1;
+    border-top: 1px solid rgba(0,0,0,0.1);
+  }
+  .habit-section {
+    grid-template-columns: 240px 1fr;
+  }
+  .habit-right-col {
+    grid-column: 1 / -1;
+  }
+}

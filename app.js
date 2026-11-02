@@ -3,11 +3,10 @@ const ACCOUNTS_STORAGE_KEY = 'clarity_accounts_v2';
 const SESSION_STORAGE_KEY = 'clarity_current_session_v2';
 const SUPABASE_CFG_KEY = 'clarity_supabase_cfg_v2';
 
-// Nếu bạn đã tạo Project trên Supabase, bạn có thể dán trực tiếp URL và Anon Key vào đây
-// hoặc nhập ngay trên giao diện qua nút "☁️ Kết nối Supabase"
+// Kết nối trực tiếp tới dự án Supabase Cloud của bạn (clarity-monthplan)
 const DEFAULT_SUPABASE_CONFIG = {
-  url: '',
-  anonKey: ''
+  url: 'https://wbsdswndzofvorsgszlv.supabase.co',
+  anonKey: 'sb_publishable_9FUYJ007-mgeUKBTomcvQw_NvSTEXgd'
 };
 
 const MONTH_NAMES = [
@@ -89,12 +88,15 @@ function initSupabaseClient() {
 function normalizeIdentifierToEmail(identifier) {
   const clean = identifier.trim().toLowerCase();
   if (clean.includes('@')) return clean;
-  return `${clean}@clarity.user`;
+  return `${clean}@clarityplan.com`;
 }
 
 function extractDisplayName(identifierOrEmail, metaUsername) {
   if (metaUsername) return metaUsername;
   if (!identifierOrEmail) return 'User';
+  if (identifierOrEmail.endsWith('@clarityplan.com')) {
+    return identifierOrEmail.replace('@clarityplan.com', '');
+  }
   if (identifierOrEmail.endsWith('@clarity.user')) {
     return identifierOrEmail.replace('@clarity.user', '');
   }
@@ -167,6 +169,15 @@ async function handleAuthSubmit(mode, identifier, password) {
       });
       if (error) throw new Error(error.message);
       if (!data.user) throw new Error('Không thể tạo tài khoản.');
+
+      // Nếu phiên đăng nhập chưa được cấp ngay sau signUp, tự động đăng nhập luôn
+      if (!data.session) {
+        const signInRes = await supabaseClient.auth.signInWithPassword({
+          email,
+          password
+        });
+        if (signInRes.error) throw new Error(signInRes.error.message);
+      }
 
       state.user = {
         id: data.user.id,

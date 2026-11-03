@@ -7,8 +7,14 @@ const GOOGLE_CLIENT_ID_KEY = 'clarity_google_client_id_v2';
 // Kết nối trực tiếp tới dự án Supabase Cloud của bạn (clarity-monthplan)
 const DEFAULT_SUPABASE_CONFIG = {
   url: 'https://wbsdswndzofvorsgszlv.supabase.co',
-  anonKey: 'sb_publishable_9FUYJ007-mgeUKBTomcvQw_NvSTEXgd',
-  googleClientId: ''
+  anonKey: 'sb_publishable_9FUYJ007-mgeUKBTomcvQw_NvSTEXgd'
+};
+
+const DEFAULT_FIREBASE_GOOGLE_CONFIG = {
+  "apiKey": "AIzaSyBOCPbP9yDOIxXtWxmxHPwhp8fZBI_VQYw",
+  "authDomain": "shining-medium-378518.firebaseapp.com",
+  "projectId": "shining-medium-378518",
+  "appId": "1:298371741042:web:73939f2914f6ed197219eb"
 };
 
 const MONTH_NAMES = [
@@ -41,6 +47,7 @@ const REFLECTION_PROMPTS_WEEK = [
 ];
 
 let supabaseClient = null;
+let firebaseAuth = null;
 let cloudSyncTimer = null;
 
 let state = {
@@ -58,8 +65,24 @@ let state = {
 };
 
 /* ==========================================
-   SUPABASE & AUTH INITIALIZATION
+   SUPABASE & FIREBASE GOOGLE AUTH INITIALIZATION
    ========================================== */
+function initFirebaseAuth() {
+  if (firebaseAuth) return firebaseAuth;
+  if (window.firebase && DEFAULT_FIREBASE_GOOGLE_CONFIG?.apiKey) {
+    try {
+      if (!window.firebase.apps || window.firebase.apps.length === 0) {
+        window.firebase.initializeApp(DEFAULT_FIREBASE_GOOGLE_CONFIG);
+      }
+      firebaseAuth = window.firebase.auth();
+      return firebaseAuth;
+    } catch (err) {
+      console.error('Firebase Auth init error:', err);
+    }
+  }
+  return null;
+}
+
 function getSupabaseConfig() {
   if (DEFAULT_SUPABASE_CONFIG.url && DEFAULT_SUPABASE_CONFIG.anonKey) {
     return DEFAULT_SUPABASE_CONFIG;
@@ -149,6 +172,25 @@ function parseOAuthRedirectError() {
 async function restoreSession() {
   parseOAuthRedirectError();
   initSupabaseClient();
+  initFirebaseAuth();
+
+  if (firebaseAuth) {
+    try {
+      const redirRes = await firebaseAuth.getRedirectResult();
+      if (redirRes && redirRes.user) {
+        const fu = redirRes.user;
+        await syncVerifiedGoogleProfileToSupabase({
+          sub: fu.uid,
+          email: fu.email,
+          name: fu.displayName,
+          picture: fu.photoURL
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('Firebase redirect check:', e);
+    }
+  }
 
   if (supabaseClient) {
     supabaseClient.auth.onAuthStateChange(async (event, session) => {
@@ -411,8 +453,42 @@ async function handleGoogleLogin() {
   if (!supabaseClient) {
     initSupabaseClient();
   }
+  initFirebaseAuth();
 
-  // 1. Kiểm tra xem Google OAuth Provider trên Supabase đã bật chưa trước khi redirect
+  // 1. Mở trực tiếp cửa sổ chọn tài khoản Google (Gmail) qua Firebase Google OAuth Popup
+  if (firebaseAuth && window.firebase?.auth?.GoogleAuthProvider) {
+    const provider = new window.firebase.auth.GoogleAuthProvider();
+    if (typeof provider.setCustomParameters === 'function') {
+      provider.setCustomParameters({ prompt: 'select_account' });
+    }
+    try {
+      const result = await firebaseAuth.signInWithPopup(provider);
+      if (result && result.user) {
+        const fu = result.user;
+        const user = await syncVerifiedGoogleProfileToSupabase({
+          sub: fu.uid,
+          email: fu.email,
+          name: fu.displayName,
+          picture: fu.photoURL
+        });
+        state.data = await loadMonthData(state.month, state.year);
+        renderApp();
+        return { mode: 'firebase-google-popup', user };
+      }
+    } catch (err) {
+      const code = err?.code || '';
+      if (code === 'auth/popup-blocked') {
+        await firebaseAuth.signInWithRedirect(provider);
+        return { mode: 'firebase-google-redirect' };
+      }
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return { mode: 'cancelled' };
+      }
+      throw new Error(err?.message || 'Không thể đăng nhập bằng Google.');
+    }
+  }
+
+  // 2. Fallback: Nếu Google OAuth Provider trên Supabase được bật
   const isSupabaseGoogleEnabled = await checkSupabaseGoogleProviderEnabled();
   if (supabaseClient && isSupabaseGoogleEnabled) {
     const redirectUrl = window.location.origin + window.location.pathname;
@@ -431,17 +507,7 @@ async function handleGoogleLogin() {
     return { mode: 'supabase-oauth', data };
   }
 
-  // 2. Nếu có Google Client ID, mở cửa sổ chọn tài khoản Google (GIS Popup) và đồng bộ Supabase
-  const googleClientId = getGoogleClientId();
-  if (googleClientId && window.google?.accounts?.oauth2) {
-    return await loginWithGoogleIdentityPopup(googleClientId);
-  }
-
-  // 3. Nếu chưa bật Google Provider trên Supabase, mở hộp thoại Đăng nhập Gmail & Cấu hình 1-Click
-  // (Tuyệt đối không redirect sang trang lỗi 400 JSON "Unsupported provider")
-  state.showGoogleModal = true;
-  renderApp();
-  return { mode: 'google-modal' };
+  throw new Error('Không thể khởi tạo cửa sổ đăng nhập Google. Vui lòng thử lại.');
 }
 
 async function handleAuthSubmit(mode, identifier, password) {
@@ -540,6 +606,11 @@ async function handleAuthSubmit(mode, identifier, password) {
 }
 
 async function handleLogout() {
+  if (firebaseAuth) {
+    try {
+      await firebaseAuth.signOut();
+    } catch (e) {}
+  }
   if (supabaseClient) {
     try {
       await supabaseClient.auth.signOut();
@@ -935,16 +1006,11 @@ function renderAuthScreen() {
           <div id="auth-feedback" class="auth-msg ${state.authError ? 'error' : ''}">${escapeHtml(state.authError || '')}</div>
         </form>
 
-        <div class="auth-footer-bar">
-          <span>Trạng thái: <strong>${isCloudConnected ? '☁️ Supabase Cloud' : '💾 Đa tài khoản'}</strong></span>
-          <button type="button" class="btn-tool" id="btn-open-cloud-cfg" style="padding:4px 8px; font-size:11px;">
-            ⚙️ Cấu hình Supabase Cloud
-          </button>
+        <div class="auth-footer-bar" style="justify-content:center;">
+          <span>🔒 Dữ liệu lịch trình được đồng bộ tự động theo tài khoản của bạn</span>
         </div>
       </div>
     </div>
-    ${state.showCloudModal ? renderCloudConfigModal() : ''}
-    ${state.showGoogleModal ? renderGoogleAuthModal() : ''}
   `;
 }
 
